@@ -1,0 +1,22 @@
+[
+  {
+    "id": "4f0c11e4f1600817a5a9",
+    "title": "SteamWatch",
+    "description": "Отслеживай цены на игры Steam в гривнах и получай уведомления Windows, когда появляется выгодное предложение.",
+    "kind": "app",
+    "version": "1.0",
+    "fileName": "SteamWatch-v1.0.zip",
+    "downloadFile": "4f0c11e4f1600817a5a9.zip",
+    "downloadPath": "/download/4f0c11e4f1600817a5a9",
+    "createdAt": "2026-11-18T09:03:31.793Z"
+  },
+  {
+    "id": "c892ef6d89efc645",
+    "title": "SteamWatch",
+    "description": "Отслеживай цены на игры Steam в гривнах и получай уведомления Windows, когда появляется выгодное предложение.",
+    "link": "https://steamwatch-site.onrender.com/",
+    "kind": "site",
+    "version": "1.0",
+    "createdAt": "2026-11-18T08:44:01.026Z"
+  }
+]
