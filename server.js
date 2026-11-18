@@ -1,19 +1,39 @@
 import http from 'node:http';
 import { createHmac, timingSafeEqual, randomBytes } from 'node:crypto';
-import { readFile, writeFile, mkdir, unlink } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, unlink, copyFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-const storeDir = process.env.DATA_DIR || path.join(root, 'data');
+const onRender = process.env.RENDER === 'true';
+const storeDir = process.env.DATA_DIR || (onRender ? '/var/data' : path.join(root, 'data'));
 const storeFile = path.join(storeDir, 'projects.json');
 const port = Number(process.env.PORT || 3000);
 const password = process.env.ADMIN_PASSWORD;
 if (!password) throw new Error('Set ADMIN_PASSWORD before starting the server.');
 await mkdir(storeDir, { recursive: true });
 await mkdir(path.join(storeDir, 'files'), { recursive: true });
-if (!existsSync(storeFile)) await writeFile(storeFile, '[]');
+if (!existsSync(storeFile)) {
+  const bundledStore = path.join(root, 'data', 'projects.json');
+  if (storeFile !== bundledStore && existsSync(bundledStore)) {
+    await copyFile(bundledStore, storeFile);
+    const bundledFiles = path.join(root, 'data', 'files');
+    if (existsSync(bundledFiles)) {
+      const seedProjects = JSON.parse(await readFile(bundledStore, 'utf8'));
+      for (const project of seedProjects) {
+        if (!project.downloadFile) continue;
+        const filename = path.basename(project.downloadFile);
+        try { await copyFile(path.join(bundledFiles, filename), path.join(storeDir, 'files', filename)); }
+        catch { /* The seed listing can remain visible even if its old download is absent. */ }
+      }
+    }
+    console.log(`Initialized persistent project catalog in ${storeDir}`);
+  } else {
+    await writeFile(storeFile, '[]');
+  }
+}
+if (onRender && !process.env.DATA_DIR) console.warn('DATA_DIR is not set; using /var/data. Attach a persistent disk at /var/data to preserve publications across deploys.');
 const secretFile = path.join(storeDir, 'session.secret');
 let secret = process.env.SESSION_SECRET;
 if (!secret) {
