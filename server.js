@@ -83,11 +83,12 @@ const server = http.createServer(async (req, res) => {
       if (!authorized(req)) return send(res, 401, { error: 'Войдите в режим разработчика.' });
       const body = await readBody(req);
       const title = String(body.title || '').trim().slice(0, 100);
+      const author = String(body.author || '').trim().slice(0, 80);
       const description = String(body.description || '').trim().slice(0, 600);
       const link = String(body.link || '').trim().slice(0, 500);
-      if (!title || !description || !/^https?:\/\//i.test(link)) return send(res, 400, { error: 'Заполните название, описание и корректную ссылку с http:// или https://.' });
+      if (!title || !author || !description || !/^https?:\/\//i.test(link)) return send(res, 400, { error: 'Заполните название, автора, описание и корректную ссылку с http:// или https://.' });
       const projects = await getProjects();
-      const project = { id: randomBytes(8).toString('hex'), title, description, link, kind: 'site', createdAt: new Date().toISOString() };
+      const project = { id: randomBytes(8).toString('hex'), title, author, description, link, kind: 'site', createdAt: new Date().toISOString() };
       projects.unshift(project); await writeFile(storeFile, JSON.stringify(projects, null, 2));
       return send(res, 201, { project });
     }
@@ -95,15 +96,32 @@ const server = http.createServer(async (req, res) => {
       if (!authorized(req)) return send(res, 401, { error: 'Войдите в режим разработчика.' });
       const { fields, file } = await readMultipart(req);
       const title = String(fields.title || '').trim().slice(0, 100);
+      const author = String(fields.author || '').trim().slice(0, 80);
       const description = String(fields.description || '').trim().slice(0, 600);
       const version = String(fields.version || '').trim().slice(0, 30);
-      if (!title || !description || !file || !file.filename || file.data.length === 0) return send(res, 400, { error: 'Заполните название, описание и прикрепите файл приложения.' });
+      if (!title || !author || !description || !file || !file.filename || file.data.length === 0) return send(res, 400, { error: 'Заполните название, автора, описание и прикрепите файл приложения.' });
       if (file.data.length > 100 * 1024 * 1024) return send(res, 413, { error: 'Файл больше 100 МБ. Прикрепите файл меньшего размера.' });
       const ext = path.extname(file.filename).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 12);
       const id = randomBytes(10).toString('hex'); const downloadFile = `${id}${ext}`;
       await writeFile(path.join(storeDir, 'files', downloadFile), file.data);
       const notes = String(fields.changelog || '').trim().slice(0, 1200);
-      const project = { id, title, description, kind: 'app', version, fileName: path.basename(file.filename).slice(0, 160), downloadFile, downloadPath: `/download/${id}`, changelog: notes ? [{ version, notes, date: new Date().toISOString() }] : [], createdAt: new Date().toISOString() };
+      const project = { id, title, author, description, kind: 'app', version, fileName: path.basename(file.filename).slice(0, 160), downloadFile, downloadPath: `/download/${id}`, changelog: notes ? [{ version, notes, date: new Date().toISOString() }] : [], createdAt: new Date().toISOString() };
+      const projects = await getProjects(); projects.unshift(project); await writeFile(storeFile, JSON.stringify(projects, null, 2));
+      return send(res, 201, { project });
+    }
+    if (url.pathname === '/api/projects/file' && req.method === 'POST') {
+      if (!authorized(req)) return send(res, 401, { error: 'Войдите в режим разработчика.' });
+      const { fields, file } = await readMultipart(req);
+      const title = String(fields.title || '').trim().slice(0, 100);
+      const author = String(fields.author || '').trim().slice(0, 80);
+      const description = String(fields.description || '').trim().slice(0, 600);
+      if (!title || !author || !description || !file?.filename || !file.data.length) return send(res, 400, { error: 'Заполните название, автора, описание и прикрепите файл.' });
+      if (file.data.length > 100 * 1024 * 1024) return send(res, 413, { error: 'Файл больше 100 МБ.' });
+      const id = randomBytes(10).toString('hex');
+      const ext = path.extname(file.filename).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 12);
+      const downloadFile = `${id}${ext}`;
+      await writeFile(path.join(storeDir, 'files', downloadFile), file.data);
+      const project = { id, title, author, description, kind: 'file', fileName: path.basename(file.filename).slice(0, 160), downloadFile, downloadPath: `/download/${id}`, createdAt: new Date().toISOString() };
       const projects = await getProjects(); projects.unshift(project); await writeFile(storeFile, JSON.stringify(projects, null, 2));
       return send(res, 201, { project });
     }
@@ -114,20 +132,23 @@ const server = http.createServer(async (req, res) => {
       if (index < 0) return send(res, 404, { error: 'Публикация не найдена.' });
       const project = projects[index];
       let fields; let file = null;
-      if (project.kind === 'app') ({ fields, file } = await readMultipart(req));
+      if (project.kind !== 'site') ({ fields, file } = await readMultipart(req));
       else fields = await readBody(req);
       const title = String(fields.title || '').trim().slice(0, 100);
+      const author = String(fields.author || '').trim().slice(0, 80);
       const description = String(fields.description || '').trim().slice(0, 600);
-      if (!title || !description) return send(res, 400, { error: 'Заполните название и описание.' });
-      project.title = title; project.description = description;
+      if (!title || !author || !description) return send(res, 400, { error: 'Заполните название, автора и описание.' });
+      project.title = title; project.author = author; project.description = description;
       let version = project.version || '';
       if (project.kind === 'site') {
         const link = String(fields.link || '').trim().slice(0, 500);
         if (!/^https?:\/\//i.test(link)) return send(res, 400, { error: 'Укажите корректную ссылку с http:// или https://.' });
         project.link = link;
       } else {
+        if (project.kind === 'app') {
         version = String(fields.version || '').trim().slice(0, 30);
         project.version = version;
+        }
         if (file?.filename && file.data.length) {
           if (file.data.length > 100 * 1024 * 1024) return send(res, 413, { error: 'Файл больше 100 МБ.' });
           const ext = path.extname(file.filename).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 12);
@@ -161,7 +182,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname.startsWith('/download/') && req.method === 'GET') {
       const id = path.basename(url.pathname.slice('/download/'.length));
-      const project = (await getProjects()).find(item => item.id === id && item.kind === 'app' && item.downloadFile);
+      const project = (await getProjects()).find(item => item.id === id && ['app', 'file'].includes(item.kind) && item.downloadFile);
       if (!project) return send(res, 404, { error: 'Файл не найден.' });
       const data = await readFile(path.join(storeDir, 'files', project.downloadFile));
       const safeName = project.fileName.replace(/[\r\n"\\]/g, '_');
