@@ -102,9 +102,53 @@ const server = http.createServer(async (req, res) => {
       const ext = path.extname(file.filename).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 12);
       const id = randomBytes(10).toString('hex'); const downloadFile = `${id}${ext}`;
       await writeFile(path.join(storeDir, 'files', downloadFile), file.data);
-      const project = { id, title, description, kind: 'app', version, fileName: path.basename(file.filename).slice(0, 160), downloadFile, downloadPath: `/download/${id}`, createdAt: new Date().toISOString() };
+      const notes = String(fields.changelog || '').trim().slice(0, 1200);
+      const project = { id, title, description, kind: 'app', version, fileName: path.basename(file.filename).slice(0, 160), downloadFile, downloadPath: `/download/${id}`, changelog: notes ? [{ version, notes, date: new Date().toISOString() }] : [], createdAt: new Date().toISOString() };
       const projects = await getProjects(); projects.unshift(project); await writeFile(storeFile, JSON.stringify(projects, null, 2));
       return send(res, 201, { project });
+    }
+    if (url.pathname.startsWith('/api/projects/') && req.method === 'PUT') {
+      if (!authorized(req)) return send(res, 401, { error: 'Войдите в режим разработчика.' });
+      const id = decodeURIComponent(url.pathname.slice('/api/projects/'.length));
+      const projects = await getProjects(); const index = projects.findIndex(item => item.id === id);
+      if (index < 0) return send(res, 404, { error: 'Публикация не найдена.' });
+      const project = projects[index];
+      let fields; let file = null;
+      if (project.kind === 'app') ({ fields, file } = await readMultipart(req));
+      else fields = await readBody(req);
+      const title = String(fields.title || '').trim().slice(0, 100);
+      const description = String(fields.description || '').trim().slice(0, 600);
+      if (!title || !description) return send(res, 400, { error: 'Заполните название и описание.' });
+      project.title = title; project.description = description;
+      let version = project.version || '';
+      if (project.kind === 'site') {
+        const link = String(fields.link || '').trim().slice(0, 500);
+        if (!/^https?:\/\//i.test(link)) return send(res, 400, { error: 'Укажите корректную ссылку с http:// или https://.' });
+        project.link = link;
+      } else {
+        version = String(fields.version || '').trim().slice(0, 30);
+        project.version = version;
+        if (file?.filename && file.data.length) {
+          if (file.data.length > 100 * 1024 * 1024) return send(res, 413, { error: 'Файл больше 100 МБ.' });
+          const ext = path.extname(file.filename).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 12);
+          const downloadFile = `${randomBytes(10).toString('hex')}${ext}`;
+          await writeFile(path.join(storeDir, 'files', downloadFile), file.data);
+          const oldFile = project.downloadFile;
+          project.downloadFile = downloadFile;
+          project.fileName = path.basename(file.filename).slice(0, 160);
+          project.downloadPath = `/download/${id}`;
+          if (oldFile) await unlink(path.join(storeDir, 'files', path.basename(oldFile))).catch(() => {});
+        }
+      }
+      const notes = String(fields.changelog || '').trim().slice(0, 1200);
+      if (notes) {
+        project.changelog = Array.isArray(project.changelog) ? project.changelog : [];
+        project.changelog.unshift({ version, notes, date: new Date().toISOString() });
+        project.changelog = project.changelog.slice(0, 30);
+      }
+      project.updatedAt = new Date().toISOString();
+      await writeFile(storeFile, JSON.stringify(projects, null, 2));
+      return send(res, 200, { project });
     }
     if (url.pathname.startsWith('/api/projects/') && req.method === 'DELETE') {
       if (!authorized(req)) return send(res, 401, { error: 'Войдите в режим разработчика.' });
